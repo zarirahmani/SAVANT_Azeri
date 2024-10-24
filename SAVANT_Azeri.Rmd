@@ -1,0 +1,1018 @@
+---
+title: "SAVANT_Azeri"
+output: html_document
+date: "2024-05-04"
+---
+Loading libraries
+```{r}
+library(lme4)
+library(glmm)
+library(tidyverse)
+library(ggplot2)
+library(afex)
+library(trimr)
+require(car)
+require(lattice)
+require(itsadug)
+library(languageR)
+library(plotrix)
+library(Hmisc)
+library(rlist)
+library(effects)
+library(sjPlot)
+library(effectsize)
+library(trimr)
+library(palmerpenguins)
+library(taylor)
+library(emmeans)
+library(ggsignif)
+```
+
+
+Loading the raw dataset
+```{r}
+SAVANT1 = read.csv(file = "140886-v1-7vyf.csv",  header = T)
+SAVANT2 = read.csv(file = "140886-v1-p745.csv", header = T)
+SAVANT3 = read.csv(file = "140362-v25-p745.csv", header = T)
+SAVANT4 = read.csv(file = "140362-v25-7vyf.csv", header = T)
+SAVANT5 = read.csv(file = "140886-v2-7vyf.csv", header = T)
+SAVANT6 = read.csv(file = "140886-v2-p745.csv", header = T)
+```
+
+Combining data
+```{r}
+SAVANT = rbind(SAVANT1, SAVANT2, SAVANT3, SAVANT4, SAVANT5, SAVANT6)
+
+```
+
+
+```{r}
+colnames(SAVANT)
+```
+
+```{r}
+cols_to_keep <- c("Participant.Private.ID",
+  "Reaction.Time",
+  "Participant.Status",
+  "Participant.Completion.Code",
+  "Participant.Device.Type",
+  "Trial.Number",
+  "Response.Type",
+  "Response",
+  "Correct",
+  "Display",
+  "Component.Name",
+  "Spreadsheet..condition",
+  "Spreadsheet..answer",
+  "Spreadsheet..item",
+  "Spreadsheet..trial",
+  "Spreadsheet..Freq",
+  "Spreadsheet..set",
+  "Object.ID",
+  "Response.Type"
+)
+```
+
+```{r}
+SAVANT_Data <- select(SAVANT, all_of(cols_to_keep)
+)
+```
+
+```{r}
+n_distinct(SAVANT_Data$Participant.Private.ID)
+```
+```{r}
+unique(SAVANT_Data$Participant.Private.ID)
+```
+```{r}
+view(SAVANT_Data)
+```
+
+Loading Questionnaires
+```{r}
+questionnaire1 <- read.csv("140886-v1-questionnaire-e274.csv")
+questionnaire2 <- read.csv("140362-v25-questionnaire-e274.csv")
+questionnaire3 <- read.csv("140886-v2-questionnaire-e274.csv")
+```
+
+Combining questionnaires
+```{r}
+questionnaire <- rbind(questionnaire1,questionnaire2,questionnaire3)
+```
+
+```{r}
+unique(questionnaire$Participant.Private.ID)
+```
+
+
+```{r}
+colnames(questionnaire)
+```
+
+
+```{r}
+cols_to_keep <- c("Participant.Private.ID",
+                  "Participant.Status",
+                  "Participant.Device.Type",
+                  "Question",
+                  "Response",
+                  "Object.ID",
+                  "Key"
+)
+
+Questionnaire <- select(questionnaire, all_of(cols_to_keep))
+```
+
+```{r}
+n_distinct(Questionnaire$Participant.Private.ID)
+```
+```{r}
+view(Questionnaire)
+```
+
+Looking at timedouts
+We don't need to remove timedouts because they have already been labelled as "screen" in the object.ID column instead of object number. 
+```{r}
+SAVANT_Timedouts <- SAVANT_Data %>% filter(Response.Type == "timedOut")
+```
+
+Checking whether participants have used mobile phones and if so I need to exclude them from data.
+Device type in task data:
+```{r}
+table(SAVANT_Data$Participant.Private.ID,SAVANT_Data$Participant.Device.Type)
+```
+Device type in questionnaire:
+```{r}
+table(Questionnaire$Participant.Private.ID,Questionnaire$Participant.Device.Type)
+```
+
+
+```{r}
+colnames(SAVANT_Data)
+```
+```{r}
+colnames(Questionnaire)
+```
+
+
+Renaming columns
+```{r}
+SAVANT_Data <- SAVANT_Data %>% 
+  rename(
+  Participant = Participant.Private.ID,
+  Completion.Code= Participant.Completion.Code,
+  Device.Type = Participant.Device.Type,
+  RT = Reaction.Time,
+  Accuracy = Correct,
+  Condition = Spreadsheet..condition,
+  Answer = Spreadsheet..answer,
+  Item = Spreadsheet..item,
+  Trial = Spreadsheet..trial,
+  Freq = Spreadsheet..Freq,
+  Set = Spreadsheet..set,
+  Object = Object.ID
+  )
+```
+
+
+```{r}
+Questionnaire <- Questionnaire %>% 
+  rename(
+  Participant = Participant.Private.ID,
+  Device.Type = Participant.Device.Type,
+  Object = Object.ID
+)
+```
+
+
+looking at age range 
+```{r}
+Age <- Questionnaire %>% 
+  filter(Object == "object-13") %>% 
+  distinct(Participant, Response)
+
+```
+
+```{r}
+Questionnaire <- Questionnaire %>% 
+  mutate( Response = str_replace_all(Response, "۴۲","42"))
+
+Questionnaire <- Questionnaire %>% 
+  mutate( Response = str_replace_all(Response, "36 سال", 
+                                       "36"))
+```
+
+```{r}
+Age <- Questionnaire %>% 
+  filter(Object == "object-13") %>% 
+  distinct(Participant, Response)
+```
+Participant 9287678 is under the age of 18 and needs to be excluded.
+
+Mean age of participants 
+changing age to a numeric value and calculating mean 
+```{r}
+age_numeric <- as.numeric(Age$Response)
+str(age_numeric)
+mean(age_numeric)
+range(age_numeric)
+```
+
+Where were participants born?
+```{r}
+Place_of_Birth <- Questionnaire %>% 
+  filter(Object == "object-15") %>% 
+  distinct(Participant, Response)
+
+```
+
+Questions in questionnaire include self-assessed language proficiency and language use. 
+Object-40: Language use- Speaking in Azeri 
+Object-76: Language use- Listening in Azeri 
+Object-77: Language use- Writing in Azeri 
+Object-82: Language use- Reading in Azeri 
+Object-86: Self-proficiency in speaking in Azeri
+Object-88: Self-proficiency in listening in Azeri 
+Object-89: Self-proficiency in reading in Azeri
+Object-92: Self-proficiency in writing in Azeri
+Object-41: Language use- Speaking in Persian
+Object-78: Language use- Listening in Persian
+Object-80: Language use- Writing in Persian
+Object-83: Language use- Reading in Persian
+
+
+```{r}
+str(Questionnaire)
+```
+Converting characters to numeric in the response column 
+```{r}
+Questionnaire <- Questionnaire %>% mutate(
+  Response = as.numeric(Response)
+)
+str(Questionnaire)
+
+```
+To calculate the mean for self-assessed  proficiency in speaking I need to filter for object-86:
+```{r}
+Prof_Speak <- Questionnaire %>% filter(Object == "object-86")
+```
+2 participants have rated their proficiency in speaking as bad as 1. 
+
+Mean of self-assessed proficiency in speaking 
+```{r}
+Mean_Prof_Speak <- Prof_Speak %>% 
+  summarise(Mean_Speaking = mean(as.numeric(Response))/7*100
+)
+
+```
+
+Mean of self-assessed proficiency in listening in Azeri 
+```{r}
+Prof_Listen <- Questionnaire %>% 
+  filter(Object == "object-88")
+
+Mean_Prof_Listen <- Prof_Listen %>% 
+  summarise(Mean_Listening = mean(as.numeric(Response))/7*100
+)
+
+```
+
+Mean of self-assessed proficiency in reading in Azeri
+```{r}
+Prof_Read <- Questionnaire %>% 
+  filter(Object == "object-89")
+
+Mean_Prof_Read <- Prof_Read %>% 
+  summarise(Mean_Reading=mean(as.numeric(Response))/7*100
+)
+
+```
+
+Mean of self-assessed proficiency in writing in Azeri
+```{r}
+Prof_Write <- Questionnaire %>% 
+  filter(Object == "object-92")
+
+Mean_Prof_Write <- Prof_Write %>% 
+  summarise(Mean_Writing=mean(as.numeric(Response))/7*100
+)
+
+```
+
+Mean of self-assessed proficiency in four skills in Azeri per participant 
+```{r}
+Self_Assess_Prof <- Questionnaire %>% 
+  filter(Object =="object-86"|Object == "object-88"|Object == "object-89"|Object == "object-92"
+)
+
+Mean_Prof <- Self_Assess_Prof %>% 
+  group_by(Participant) %>% 
+  summarise(Mean_Proficiency=mean(as.numeric(Response))/7*100) %>% 
+  arrange(Mean_Proficiency)
+
+str(Mean_Prof)
+```
+Merging mean of proficiency to the data
+```{r}
+SAVANT_Data <- merge(Mean_Prof,SAVANT_Data, by=c("Participant")
+)
+
+```
+
+```{r}
+n_distinct(SAVANT_Data$Participant)
+```
+```{r}
+unique(SAVANT_Data$Participant)
+```
+
+Language use in Azeri:
+Data was filtered for language use in four skills of speaking, listening, reading and writing in Azeri
+
+```{r}
+Lan_Use <- Questionnaire %>% 
+  filter(Object =="object-40"|Object == "object-76"|Object == "object-77"|Object == "object-82"
+)
+
+```
+Mean of language use in four skills by participant
+```{r}
+Mean_LanUse <- Lan_Use %>% 
+  group_by(Participant) %>% 
+  summarise(Mean_LanUse=mean(as.numeric(Response))
+  ) %>%
+  arrange(Mean_LanUse)
+
+```
+Merging language use mean rates to the data
+```{r}
+SAVANT_Data <- merge(Mean_LanUse, SAVANT_Data, by=c("Participant")
+)
+
+```
+
+Mean of language use in speaking in Azeri
+```{r}
+LanUse_Speak <- Questionnaire %>% 
+  filter(Object =="object-40")
+
+Mean_Use_Speak <- LanUse_Speak %>% 
+  summarise(Mean_Speaking=mean(as.numeric(Response))
+)
+
+```
+Mean of language use in listening in Azeri
+```{r}
+LanUse_Listen <- Questionnaire %>% 
+  filter(Object == "object-76")
+
+Mean_Use_Listen <- LanUse_Listen %>% 
+  summarise(Mean_Listening=mean(as.numeric(Response))
+)
+
+```
+
+Mean of language use in writing in Azeri
+```{r}
+LanUse_Write <- Questionnaire %>% 
+  filter(Object == "object-77")
+
+Mean_Use_Write <- LanUse_Write %>% 
+  summarise(Mean_Writing=mean(as.numeric(Response))
+)
+```
+
+Mean of language use in reading in Azeri
+```{r}
+LanUse_Read <- Questionnaire %>% 
+  filter(Object == "object-82")
+
+Mean_Use_Read <- LanUse_Read %>% 
+  summarise(Mean_Reading=mean(as.numeric(Response))
+)
+```
+
+Mean of language use in speaking in Persian
+```{r}
+LanUse_Fa_Speak <- Questionnaire %>% 
+  filter(Object == "object-41")
+
+Mean_Use_Fa_Speak <- LanUse_Fa_Speak %>% 
+  summarise(Mean_Fa_Speak=mean(as.numeric(Response))
+)
+```
+
+Mean of language use in listening in Persian
+```{r}
+LanUse_Fa_Listen <- Questionnaire %>% filter(Object == "object-78")
+
+Mean_Use_Fa_Listen <- LanUse_Fa_Listen %>% summarise(Mean_Fa_Listen=mean(as.numeric(Response))
+)
+```
+
+Mean of language use in writing in Persian
+```{r}
+LanUse_Fa_Write <- Questionnaire %>% 
+  filter(Object == "object-80")
+
+Mean_Use_Fa_Write <- LanUse_Fa_Write %>% 
+  summarise(Mean_Fa_Write=mean(as.numeric(Response))
+)
+```
+
+Mean of language use in reading in Persian
+```{r}
+LanUse_Fa_Read <- Questionnaire %>% 
+  filter(Object == "object-83")
+
+Mean_Use_Fa_Read <- LanUse_Fa_Read %>% 
+  summarise(Mean_Fa_Read=mean(as.numeric(Response))
+)
+```
+
+Mean of language use in four skills in Persian
+```{r}
+Lan_Use_Persian <- Questionnaire %>% 
+  filter(Object =="object-41"|Object == "object-78"|Object == "object-80"|Object == "object-83"
+)
+```
+
+```{r}
+Mean_LanUse_Persian <- Lan_Use_Persian %>% 
+  group_by(Participant) %>% 
+  summarise(Mean_LanUse_Persian=mean(as.numeric(Response))
+  ) %>%
+  arrange(Mean_LanUse_Persian)
+```
+
+Merging language use mean rates in Persian to the data
+```{r}
+SAVANT_Data <- merge(Mean_LanUse_Persian, SAVANT_Data, by=c("Participant")
+)
+```
+
+Checking for keyboard response: This includes keyboard response in both practice and critical trials. The reason that I filtered for "keyboard response" is that it is incorporated in two screens in the experiment: both audio screen and response screen.  
+Practice trials include objects 122 and 112.
+Critical trials include objects 121 and 124.
+```{r}
+colnames(SAVANT_Data)
+```
+
+```{r}
+SAVANT_KEY <- SAVANT_Data %>% 
+  filter(Component.Name == "Keyboard Response")
+unique(SAVANT_KEY$Object)
+```
+Checking for object 124 (Object 124 is the keyboard response in the audio screen)
+Some participants have responded to items before audio finishes or exactly when audio finishes, i.e. in object-124 
+```{r}
+SAVANT_124 <- SAVANT_Data %>% 
+  filter(Set == "critical",Object == "object-124")
+nrow(SAVANT_124)
+```
+
+What's the number of trials in object 121 of the critical set?
+```{r}
+SAVANT_121 <- SAVANT_Data %>% 
+  filter(Set == "critical",Object == "object-121") 
+
+nrow(SAVANT_121)
+```
+Most trials have been responded in object 121.
+
+Looking at the number of accurate responses in object 121
+```{r}
+table(SAVANT_121$Accuracy)
+```
+Looking at the number of accurate responses in object 124 
+```{r}
+table(SAVANT_124$Accuracy)
+```
+A mistake: Grammatical harmony items have been labeled as unacceptable in the spreadsheet in Gorilla 
+```{r}
+Everything_other_data <- SAVANT_Data %>% filter(Condition != "GramHarm") #filtering for all data except grammatical harmony items
+GramHarm_crit_data <- SAVANT_Data %>% filter(Condition == "GramHarm") %>% filter(Set == "critical") #filtering for grammatical harmony items in the critical set
+
+GramHarm_crit_data["Accuracy"][GramHarm_crit_data["Accuracy"] == 0] <- 2
+GramHarm_crit_data["Accuracy"][GramHarm_crit_data["Accuracy"] == 1] <- 0
+GramHarm_crit_data["Accuracy"][GramHarm_crit_data["Accuracy"] == 2] <- 1
+
+GramHarm_noncrit_data <- SAVANT_Data %>% filter(Condition == "GramHarm") %>% filter(Set != "critical")
+
+SAVANT_Task <- rbind(GramHarm_crit_data,Everything_other_data,GramHarm_noncrit_data)
+```
+
+```{r}
+view(SAVANT_Task)
+colnames(SAVANT_Task)
+```
+Filtering for object 121 and 124
+```{r}
+Task_Critical_121_124 <- SAVANT_Task %>% 
+  filter(Set == "critical") %>%
+  filter(Object == "object-121" | Object == "object-124")
+
+```
+
+Creating a column with a unique trial number to be able to choose 
+```{r}
+Task_Critical_121_124$TrialUniqueID <- paste(Task_Critical_121_124$Participant," / ", Task_Critical_121_124$Trial.Number)
+
+```
+
+Filtering for data where participants responded in both object 124 and 121 and then filtering for only object 124
+```{r}
+TrialWithBoth = Task_Critical_121_124$TrialUniqueID[Task_Critical_121_124$Object == "object-121" & Task_Critical_121_124$TrialUniqueID %in% Task_Critical_121_124$TrialUniqueID[Task_Critical_121_124$Object == "object-124"]]
+
+SAVANT_critical = Task_Critical_121_124[!(Task_Critical_121_124$TrialUniqueID %in% TrialWithBoth & Task_Critical_121_124$Object == "object-121"),]
+```
+
+Filler trials
+```{r}
+SAVANT_filler <- SAVANT_Task %>% 
+  filter(Set == "filler") %>%
+  filter(Object == "object-121" | Object == "object-124")
+```
+
+```{r}
+SAVANT_filler$TrialUniqueID2 <- paste(SAVANT_filler$Participant," / ", SAVANT_filler$Trial.Number)
+
+TrialWithBoth = SAVANT_filler$TrialUniqueID2[SAVANT_filler$Object == "object-121" & SAVANT_filler$TrialUniqueID2 %in% 
+SAVANT_filler$TrialUniqueID2[SAVANT_filler$Object == "object-124"]]
+
+SAVANT_filler = SAVANT_filler[!(SAVANT_filler$TrialUniqueID2 %in% TrialWithBoth & SAVANT_filler$Object == "object-121"),]
+```
+
+Now I have 2 separate data for critical and filler trials: SAVANT_critical, SAVANT_filler
+
+Participants in the filler trials
+```{r}
+unique(SAVANT_filler$Participant)
+```
+Which participants didn't respond to fillers or critical trials?
+```{r}
+Participant_data <- SAVANT_Task$Participant
+Participant_filler <- SAVANT_filler$Participant
+Participant_critical <- SAVANT_critical$Participant
+```
+
+```{r}
+Bad_Participants_Critical <- setdiff(Participant_data, Participant_critical)
+Bad_Participants_Critical
+```
+```{r}
+Bad_Participants_Filler <- setdiff(Participant_data, Participant_filler)
+Bad_Participants_Filler
+```
+Let's find out why these participants didn't respond to the trials
+```{r}
+Bad_Participants_Data_Critical <- SAVANT_Task %>% 
+  filter(Participant %in% Bad_Participants_Critical) %>%
+  filter(Object == "object-124" | Object == "object-121")
+```
+They have not responded to the trials. Their keyboards might not be working or they have missed to respond.
+
+```{r}
+Bad_Participants_Data <- SAVANT_Task %>% filter(Participant %in% Bad_Participants_Critical)
+
+```
+
+```{r}
+Questionnaire_Bad_Participants <- Questionnaire %>% filter(Participant %in% Bad_Participants_Critical)
+
+```
+Two participants have not responded to the trials: One of the participants is from Zanjan and 34 years old and the other is from Maragheh and 22 years old.
+The third participant is the one who answered with a mobile phone: 9458745
+
+These participants will be removed from the data
+
+Removing Bad Participants
+```{r}
+SAVANT_Task <- SAVANT_Task[!SAVANT_Task$Participant %in% Bad_Participants_Critical,]
+SAVANT_filler <- SAVANT_filler[!SAVANT_filler$Participant %in% Bad_Participants_Critical,]
+SAVANT_critical <- SAVANT_critical[!SAVANT_critical$Participant %in% Bad_Participants_Critical,]
+```
+
+Changing character/integer variables into factors in filler trials
+```{r}
+SAVANT_filler <- SAVANT_filler %>% 
+  mutate (Participant = as.factor(Participant),
+          Trial.Number = as.factor(Trial.Number),
+          Condition = as.factor(Condition),
+          Item = as.factor(Item),
+          Trial = as.factor(Trial),
+          Freq = as.factor(Freq)
+    )
+summary(SAVANT_filler)
+```
+Changing character/integer variables into factors in critical trials
+```{r}
+SAVANT_critical <- SAVANT_critical %>% 
+  mutate (Participant.Private.ID = as.factor(Participant),
+          Trial.Number = as.factor(Trial.Number),
+          Condition = as.factor(Condition),
+          Item = as.factor(Item),
+          Trial = as.factor(Trial),
+          Freq = as.factor(Freq)
+    
+          
+  )
+summary(SAVANT_critical)
+```
+```{r}
+table_correct_critical <- SAVANT_critical %>% 
+  count(Participant, Accuracy) %>% 
+  spread(Accuracy, n) %>% 
+  mutate(prop.accuracy = `1`/168) %>% 
+  mutate(prop.accuracy = round(prop.accuracy, 2)) %>% 
+  arrange(prop.accuracy)
+
+table_correct_critical
+view(table_correct_critical)
+```
+
+```{r}
+
+table_correct_filler <- SAVANT_filler %>% 
+  count(Participant, Accuracy) %>% 
+  spread(Accuracy, n) %>% 
+  mutate(across(c("0", "1"), ~ ifelse(is.na(.), 0,.))) %>%
+  mutate(prop.Accuracy = `1`/24) %>% 
+  mutate(prop.Accuracy = round(prop.Accuracy, 2)) %>% 
+  arrange(prop.Accuracy)
+
+table_correct_filler
+view(table_correct_filler)
+```
+I'll remove participants that have accuracy rate of less than 70% in the filler trials.
+The forth participant is 16 years old and needs to be removed from the data.
+```{r}
+
+Participant_high_error <- list(9345406, 9237013, 9401799, 9287678)
+SAVANT_Task <- SAVANT_Task[!SAVANT_Task$Participant %in% Participant_high_error,]
+SAVANT_filler <- SAVANT_filler[!SAVANT_filler$Participant %in% Participant_high_error,]
+SAVANT_critical <- SAVANT_critical[!SAVANT_critical$Participant %in% Participant_high_error,]
+
+```
+
+```{r}
+colnames(SAVANT_critical)
+```
+Accuracy mean, SD and SE 
+```{r}
+Acc_mean <- SAVANT_critical %>% group_by(Condition) %>% summarise(Mean = round(mean(Accuracy),2), SD = round(sd(Accuracy),3), SE = round(std.error(Accuracy),4))
+view(Acc_mean)                                                                 
+```
+
+Accuracy plot by average:
+```{r}
+SAVANT_critical %>% group_by(Condition, Item) %>%
+  summarise(prop = mean(Accuracy)) %>%
+  ggplot(aes(x= Condition , y= prop)) +
+  stat_summary(fun.data = mean_cl_boot, size=0.75) + 
+  geom_jitter(size = 0.5, alpha = 0.5, width = 0.2, height = 0) +
+  xlab("Condition") +
+  ylab("Accuracy")
+```
+
+```{r}
+
+ggplot(Acc_mean,
+       aes(x=Condition,y=Mean*100,fill = Condition)) +
+  
+ 
+  geom_bar(stat = "identity", width = 0.7, position = position_dodge(0.7), show.legend = FALSE  )+
+  ylab("% Accuracy") + 
+  xlab("Conditions") +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)))+
+  geom_signif(
+    comparisons = "Condition",
+    margin_top = 0.12,
+    step_increase = 0.09,
+    tip_length = 0.05,
+    annotation = c("***")
+  )
+```
+
+Accuracy rates: Generalised Linear Modeling
+
+Response: Accuracy
+Predictors: 1. Condition, 2. Trial, 3. Participant, 4. Frequency 
+
+```{r}
+SAVANT_critical$Condition <- relevel(SAVANT_critical$Condition, ref = "Gramm.Simple") 
+```
+
+
+```{r}
+acc.m1 <- glmer (Accuracy ~ Condition + (1  | Participant) + (1  | Trial), data = SAVANT_critical, family = "binomial", control = glmerControl(optimizer = "bobyqa"))
+summary(acc.m1)
+```
+```{r}
+tab_model(acc.m1)
+```
+
+```{r}
+emmeans(acc.m1, pairwise ~ Condition, adjust = "bonferroni")
+```
+
+
+Harmony manipulation: Grammatical Harmony vs Harmony Violation
+```{r}
+Harmony_Accu <- SAVANT_critical %>% filter(Condition == "GramHarm" | Condition == "HarmViol" )
+```
+
+```{r}
+Acc_HarmViol_Model <- glmer (Accuracy ~ Condition + (1  | Participant) + (1  | Trial), data = Harmony_Accu, family = "binomial", control = glmerControl(optimizer = "bobyqa"))
+summary(Acc_HarmViol_Model)
+tab_model(Acc_HarmViol_Model)
+```
+```{r}
+emmeans(Acc_HarmViol_Model, pairwise ~ Condition, adjust = "bonferroni")
+```
+-lar category manipulation (gramsimple vs. synviolpl)
+```{r}
+Syn_Pl_Accu <- SAVANT_critical %>% filter(Condition == "SynViol.Pl" | Condition == "Gramm.Simple" )
+```
+
+```{r}
+Acc_SynViolPl_Model <- glmer (Accuracy ~ Condition + (1  | Participant) + (1  | Trial), data = Syn_Pl_Accu, family = "binomial", control = glmerControl(optimizer = "bobyqa"))
+summary(Acc_SynViolPl_Model)
+```
+```{r}
+emmeans(Acc_SynViolPl_Model, pairwise ~ Condition, adjust = "bonferroni")
+```
+Num X-lar manipulation (GramNum, SynViolNum, SemViol)
+
+```{r}
+NumViol_Accu <- SAVANT_critical %>% filter(Condition == "Gramm.Num" | Condition == "SynViol.Num" | Condition == "SemViol" )
+```
+
+```{r}
+Acc_SynViolNum_Model <- glmer (Accuracy ~ Condition + (1  | Participant) + (1  | Trial), data = NumViol_Accu, family = "binomial", control = glmerControl(optimizer = "bobyqa"))
+summary(Acc_SynViolNum_Model)
+```
+```{r}
+emmeans(Acc_SynViolNum_Model, pairwise ~ Condition, adjust = "bonferroni")
+```
+Comparing semantic violation vs syntactic violation plural
+```{r}
+Sem_Syn_Pl_Viol_Accu <- SAVANT_critical %>% filter(Condition == "Gramm.Num" | Condition == "SynViol.Pl" | Condition == "SemViol" )
+```
+
+```{r}
+Acc_Sem_Syn_Pl_Viol_Model <- glmer (Accuracy ~ Condition + (1  | Participant) + (1  | Trial), data = NumViol_Accu, family = "binomial", control = glmerControl(optimizer = "bobyqa"))
+summary(Acc_Sem_Syn_Pl_Viol_Model)
+```
+```{r}
+emmeans(Acc_Sem_Syn_Pl_Viol_Model, pairwise ~ Condition, adjust = "bonferroni")
+```
+
+
+
+Reaction Time 
+
+```{r}
+SAVANT_Task$TrialUniqueID <- paste(SAVANT_Task$Participant," / ", SAVANT_Task$Trial.Number)
+
+```
+
+
+```{r}
+TrialWithBoth = SAVANT_Task$TrialUniqueID[SAVANT_Task$Object == "object-121" & SAVANT_Task$TrialUniqueID %in% 
+SAVANT_Task$TrialUniqueID[SAVANT_Task$Object == "object-124"]]
+
+SAVANT_Task = SAVANT_Task[!(SAVANT_Task$TrialUniqueID %in% TrialWithBoth & SAVANT_Task$Object == "object-121"),]
+```
+
+
+```{r}
+Data_121 <- SAVANT_Task %>% filter(Object == "object-121")
+Data_44_continue <- SAVANT_Task %>% filter(Object == "object-44" & Response.Type == "continue")
+Data_121_44 <- rbind(Data_121, Data_44_continue)
+```
+
+```{r}
+RT_121 <- Data_121_44 %>% group_by(TrialUniqueID) %>%
+  summarise(Total_RT = sum(RT))
+
+```
+
+```{r}
+Data_121_final <- merge(RT_121, Data_121, by = c("TrialUniqueID"))
+```
+
+```{r}
+Data_124 <- SAVANT_Task %>% filter(Object == "object-124")
+Data_44_audio_started <- SAVANT_Task %>% filter(Object == "object-44" & Response == "audio started")
+Data_124_44 <- rbind(Data_124, Data_44_audio_started)
+
+```
+
+```{r}
+RT_124 <- Data_124_44 %>% group_by(TrialUniqueID) %>%
+  arrange(TrialUniqueID, Object) %>%
+  mutate(Total_RT = lag(RT) - RT) %>%
+  filter(!is.na(Total_RT)) %>%
+  select(Total_RT, TrialUniqueID)
+  
+
+```
+
+```{r}
+Data_124_final <- merge(Data_124, RT_124, by = c("TrialUniqueID"))
+```
+
+Combining both 121 and 124
+```{r}
+Data_121_124 <- rbind(Data_124_final, Data_121_final)
+```
+
+Filtering for correct answers in order to generate means for reaction time 
+```{r}
+SAVANT_RT <- Data_121_124 %>% filter(Accuracy == 1, Set == "critical")
+
+view(SAVANT_RT)
+```
+
+```{r}
+str(SAVANT_RT)
+```
+```{r}
+summary(SAVANT_RT$Total_RT)
+```
+
+```{r}
+qqnorm(SAVANT_RT$Total_RT)
+```
+
+
+```{r}
+
+SAVANT_RT2 <- SAVANT_RT %>% filter(Total_RT > 200)
+(nrow(SAVANT_RT) - nrow(SAVANT_RT2)) / nrow(SAVANT_RT)*100
+
+```
+Checking whether data is normaly distributed
+
+```{r}
+SAVANT_RT2$Log_RT <- log(SAVANT_RT2$Total_RT)
+```
+
+```{r}
+qqnorm(SAVANT_RT2$Log_RT)
+```
+
+
+```{r}
+hist(SAVANT_RT2$Total_RT, xlab = "Reaction Time")
+```
+
+Checking how the distribution look like for the random factor of participant 
+```{r}
+
+qqmath(~Log_RT|Participant, data = SAVANT_RT2)
+
+```
+```{r}
+table(SAVANT_RT2$Participant)
+```
+box whisker plots per condition 
+```{r}
+bwplot(Total_RT ~ Condition, data = SAVANT_RT2 )
+```
+The reason that syntactic plural violation items have been responded to faster compared with syntactic numeral violatiuon is probably because SynViol.Num items are longer in syllable. 
+
+One thing about syntactic violation plurals is that the violation is the lack of tense, 
+i.e oxu-lar (read-plural) is ungrammatical while oxu-du-lar (read-past-plural) is grammatical.
+
+
+Reaction Time means per condition and standard error and standard deviation 
+```{r}
+SAVANT_RT_means <- SAVANT_RT2 %>% group_by(Condition) %>% summarise(Mean = round(mean(Total_RT),2), Standard_Deviation = round(sd(Total_RT),2), Standard_Error = round(std.error(Total_RT),3)
+)
+
+view(SAVANT_RT_means)
+```
+
+Let's look at the effect of fatigue
+```{r}
+xylowess.fnc(Total_RT ~ Trial | Participant, data = SAVANT_RT2, ylab = "log RT")
+```
+```{r}
+str(SAVANT_RT2)
+```
+```{r}
+SAVANT_RT2 <- SAVANT_RT2 %>% mutate (Participant = as.factor(Participant),
+          Trial.Number = as.factor(Trial.Number),
+          Condition = as.factor(Condition),
+          Item = as.factor(Item),
+          Trial = as.factor(Trial),
+          Freq = as.factor(Freq)
+    )
+```
+
+
+```{r}
+SAVANT_RT2$Condition <- relevel(SAVANT_RT2$Condition, ref = "Gramm.Simple") 
+```
+
+
+```{r}
+RT_M1 <- lmer(Total_RT ~ Condition + (1  | Participant) + (1  | Trial), data=SAVANT_RT2)
+tab_model(RT_M1)
+summary(RT_M1)
+```
+
+Let's extract fitted values and compare these with the actual values
+```{r}
+fitted(RT_M1)[1:4]
+```
+```{r}
+SAVANT_RT2$Total_RT[1:4]
+```
+
+
+Harmony manipulation (gramharm vs. harmviol)
+```{r}
+RT_Harmony <- SAVANT_RT2 %>%
+  filter(Condition == "HarmViol" | Condition == "GramHarm")
+```
+
+
+```{r}
+RT_Harmony_Model <- lmer(Total_RT ~ Condition + (1  | Participant) + (1  | Trial), data = RT_Harmony)
+tab_model(RT_Harmony_Model)
+summary(RT_Harmony_Model)
+```
+
+```{r}
+emmeans(RT_Harmony_Model, pairwise ~ Condition, adjust = "bonferroni")
+```
+
+-lar category manipulation (gramsimple vs. synviolpl)
+```{r}
+RT_SynViolPl <- SAVANT_RT2 %>%
+  filter(Condition == "Gramm.Simple" | Condition == "SynViol.Pl")
+```
+
+
+```{r}
+RT_SynViolPl_Model <- lmer(Total_RT ~ Condition + (1  | Participant) + (1  | Trial), data = RT_SynViolPl)
+tab_model(RT_SynViolPl_Model)
+summary(RT_SynViolPl_Model)
+```
+```{r}
+emmeans(RT_SynViolPl_Model, pairwise ~ Condition, adjust = "bonferroni")
+```
+
+Num X-lar manipulation (GramNum, SynViolNum, SemViol)
+```{r}
+RT_SynViolNum <- SAVANT_RT2 %>%
+  filter(Condition == "Gramm.Num" | Condition == "SynViol.Num" | Condition == "SemViol" )
+
+```
+
+```{r}
+RT_SynViolNum_Model <- lmer(Total_RT ~ Condition + (1  | Participant) + (1  | Trial), data = RT_SynViolNum)
+tab_model(RT_SynViolNum_Model)
+summary(RT_SynViolNum_Model)
+```
+
+```{r}
+emmeans(RT_SynViolNum_Model, pairwise ~ Condition, adjust = "bonferroni", pbkrtest.limit = 3113)
+```
+
+```{r}
+Sem_Syn_Pl_Viol_RT <- SAVANT_RT2 %>% 
+  filter(Condition == "Gramm.Num" | Condition == "SynViol.Pl" | Condition == "SemViol" )
+```
+
+```{r}
+Sem_Syn_Pl_Viol_RT_Model <- glmer (Accuracy ~ Condition + (1  | Participant) + (1  | Trial), data = Sem_Syn_Pl_Viol_RT, family = "binomial", control = glmerControl(optimizer = "bobyqa"))
+
+summary(Sem_Syn_Pl_Viol_RT_Model)
+```
+```{r}
+emmeans(Sem_Syn_Pl_Viol_RT_Model, pairwise ~ Condition, adjust = "bonferroni")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
